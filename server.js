@@ -11,7 +11,8 @@ import { createGunzip, createInflate, createBrotliDecompress } from 'node:zlib';
 import ipaddr from 'ipaddr.js';
 import { getProxyForUrl } from 'proxy-from-env';
 import { CookieJar } from 'tough-cookie';
-import { proxyUrl, rewriteHtml, rewriteCss } from './rewrite.js';
+import { WebSocket, WebSocketServer } from 'ws';
+import { proxyUrl, rewriteHtml, rewriteCss, rewriteJavascript } from './rewrite.js';
 
 const MAX_BODY = 10 * 1024 * 1024;
 const MAX_PAGE = 24 * 1024 * 1024;
@@ -21,6 +22,7 @@ const publicFiles = new Map([
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
   ['/style.css', ['style.css', 'text/css; charset=utf-8']],
   ['/runtime.js', ['runtime.js', 'text/javascript; charset=utf-8']],
+  ['/worker-runtime.js', ['worker-runtime.js', 'text/javascript; charset=utf-8']],
 ]);
 
 class ProxyError extends Error {
@@ -60,6 +62,8 @@ function errorPage(message) {
 
 export function createProxyServer({ allowPrivateTargets = false } = {}) {
   const sessions = new Map();
+  const sockets = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 * 1024, perMessageDeflate: false });
+  const upstreamSockets = new Set();
   const proxyAgents = {
     'http:': new http.Agent({ proxyEnv: process.env }),
     'https:': new https.Agent({ proxyEnv: process.env }),
@@ -84,8 +88,7 @@ export function createProxyServer({ allowPrivateTargets = false } = {}) {
     return session;
   }
 
-  async function proxy(req, res) {
-    const target = targetFromPath(req.url, allowPrivateTargets);
+  async function connectionFor(target) {
     // Tests use a local upstream; production never exposes an override via environment variables.
     const hostname = target.hostname.replace(/^\[|\]$/g, '').replace(/\.$/, '');
     const literal = ipaddr.isValid(hostname);
@@ -108,6 +111,12 @@ export function createProxyServer({ allowPrivateTargets = false } = {}) {
       connection = { agent: false, lookup: (_host, options, callback) => options.all
         ? callback(null, [pinned]) : callback(null, pinned.address, pinned.family) };
     }
+    return connection;
+  }
+
+  async function proxy(req, res) {
+    const target = targetFromPath(req.url, allowPrivateTargets);
+    const connection = await connectionFor(target);
     const session = sessionFor(req, res);
     const headers = { 'accept-encoding': 'identity' };
     for (const name of ['accept', 'accept-language', 'user-agent', 'content-type', 'range', 'if-range']) {
@@ -115,7 +124,12 @@ export function createProxyServer({ allowPrivateTargets = false } = {}) {
     }
     const cookie = await session.jar.getCookieString(target.href);
     if (cookie) headers.cookie = cookie;
-    if (req.headers.origin) headers.origin = target.origin;
+    if (req.headers['x-arigato-origin']) {
+      let origin;
+      try { origin = new URL(req.headers['x-arigato-origin']); } catch { throw new ProxyError('Invalid request origin.', 400); }
+      if (!['http:', 'https:'].includes(origin.protocol) || origin.username || origin.password) throw new ProxyError('Invalid request origin.', 400);
+      headers.origin = origin.origin;
+    } else if (req.headers.origin) headers.origin = target.origin;
     if (req.headers.referer) {
       try {
         const referer = new URL(req.headers.referer);
@@ -157,7 +171,8 @@ export function createProxyServer({ allowPrivateTargets = false } = {}) {
       return;
     }
     const contentType = String(upstream.headers['content-type'] || 'application/octet-stream');
-    const transform = /(?:text\/html|application\/xhtml\+xml|text\/css)/i.test(contentType);
+    const javascript = /(?:text|application)\/(?:x-)?(?:java|ecma)script/i.test(contentType);
+    const transform = /(?:text\/html|application\/xhtml\+xml|text\/css)/i.test(contentType) || javascript;
     if (!transform) {
       if (upstream.headers['content-encoding']) res.setHeader('Content-Encoding', upstream.headers['content-encoding']);
       await pipeline(upstream, res);
@@ -179,8 +194,19 @@ export function createProxyServer({ allowPrivateTargets = false } = {}) {
     let text;
     try { text = new TextDecoder(charset).decode(Buffer.concat(chunks)); }
     catch { text = Buffer.concat(chunks).toString('utf8'); }
-    res.setHeader('Content-Type', `${/text\/css/i.test(contentType) ? 'text/css' : 'text/html'}; charset=utf-8`);
-    res.end(/text\/css/i.test(contentType) ? rewriteCss(text, target.href) : rewriteHtml(text, target.href));
+    if (javascript) {
+      text = rewriteJavascript(text, target.href);
+      if (['worker', 'sharedworker'].includes(req.headers['sec-fetch-dest'])) {
+        const bootstrap = req.headers['sec-fetch-mode'] === 'cors' ? 'import "/worker-runtime.js";'
+          : await readFile(new URL('./public/worker-runtime.js', import.meta.url), 'utf8');
+        text = `${bootstrap}\n${text}`;
+      }
+      res.setHeader('Content-Type', 'text/javascript; charset=utf-8');
+      res.end(text);
+    } else {
+      res.setHeader('Content-Type', `${/text\/css/i.test(contentType) ? 'text/css' : 'text/html'}; charset=utf-8`);
+      res.end(/text\/css/i.test(contentType) ? rewriteCss(text, target.href) : rewriteHtml(text, target.href));
+    }
   }
 
   const server = http.createServer(async (req, res) => {
@@ -211,11 +237,84 @@ export function createProxyServer({ allowPrivateTargets = false } = {}) {
       res.end(errorPage(message));
     }
   });
+  sockets.on('headers', (headers, req) => {
+    if (req.proxyCookie) headers.push(`Set-Cookie: ${req.proxyCookie}`);
+  });
+  server.on('upgrade', async (req, socket, head) => {
+    let upgraded = false;
+    function reject(status) {
+      if (upgraded) { socket.destroy(); return; }
+      if (!socket.destroyed && !socket.writableEnded) socket.end(`HTTP/1.1 ${status} ${http.STATUS_CODES[status]}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+    }
+    let upstream;
+    try {
+      const match = /^\/socket\/([^/]+)(\/p\/.*)$/.exec(req.url);
+      if (!match) { reject(404); return; }
+      let origin;
+      try { origin = new URL(decodeURIComponent(match[1])); } catch { throw new ProxyError('Invalid origin', 400); }
+      if (!['https:', 'http:'].includes(origin.protocol) || origin.username || origin.password) {
+        throw new ProxyError('Invalid origin', 400);
+      }
+      const target = targetFromPath(match[2], allowPrivateTargets);
+      const connection = await connectionFor(target);
+      const session = sessionFor(req, { setHeader(name, value) { if (name === 'Set-Cookie') req.proxyCookie = value; } });
+      const cookie = await session.jar.getCookieString(target.href);
+      const protocols = req.headers['sec-websocket-protocol']?.split(',').map(value => value.trim());
+      const headers = {};
+      if (cookie) headers.cookie = cookie;
+      if (req.headers['user-agent']) headers['user-agent'] = req.headers['user-agent'];
+      const url = new URL(target);
+      url.protocol = target.protocol === 'https:' ? 'wss:' : 'ws:';
+      upstream = new WebSocket(url, protocols, { ...connection, headers, origin: origin.origin,
+        handshakeTimeout: 15_000, maxPayload: 16 * 1024 * 1024, perMessageDeflate: false });
+      upstreamSockets.add(upstream);
+      upstream.on('close', () => upstreamSockets.delete(upstream));
+      upstream.on('error', () => reject(502));
+      upstream.on('unexpected-response', (_request, response) => {
+        response.resume();
+        reject(response.statusCode >= 400 ? response.statusCode : 502);
+        upstream.terminate();
+      });
+      socket.on('error', () => upstream.terminate());
+      socket.on('close', () => {
+        if (upstream.readyState === WebSocket.CONNECTING) upstream.terminate();
+      });
+      upstream.once('open', () => {
+        if (socket.destroyed) { upstream.terminate(); return; }
+        // The browser must see exactly the protocol selected by the upstream.
+        const offered = req.headers['sec-websocket-protocol'];
+        if (upstream.protocol) req.headers['sec-websocket-protocol'] = upstream.protocol;
+        else delete req.headers['sec-websocket-protocol'];
+        sockets.handleUpgrade(req, socket, head, downstream => {
+          upgraded = true;
+          req.headers['sec-websocket-protocol'] = offered;
+          for (const [from, to] of [[downstream, upstream], [upstream, downstream]]) {
+            from.on('message', (data, isBinary) => {
+              if (to.readyState !== WebSocket.OPEN) return;
+              if (to.bufferedAmount > 16 * 1024 * 1024) { to.close(1013, 'Connection too slow'); return; }
+              to.send(data, { binary: isBinary }, error => { if (error) to.terminate(); });
+            });
+            from.on('close', (code, reason) => {
+              if (to.readyState === WebSocket.OPEN) to.close(code === 1005 || code === 1006 ? 1000 : code, reason);
+              else if (to.readyState === WebSocket.CONNECTING) to.terminate();
+            });
+            from.on('error', () => to.terminate());
+          }
+        });
+      });
+    } catch (error) {
+      reject(error instanceof ProxyError ? error.status : 502);
+      upstream?.terminate();
+    }
+  });
   server.requestTimeout = 65_000;
   server.headersTimeout = 15_000;
   server.on('close', () => {
     clearInterval(timer);
     for (const agent of Object.values(proxyAgents)) agent.destroy();
+    for (const socket of sockets.clients) socket.terminate();
+    for (const socket of upstreamSockets) socket.terminate();
+    sockets.close();
   });
   return server;
 }

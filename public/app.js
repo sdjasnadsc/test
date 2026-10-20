@@ -5,8 +5,36 @@ const frame = document.querySelector('#page');
 const status = document.querySelector('#status');
 const error = document.querySelector('#error');
 const reload = document.querySelector('#reload');
+const browser = document.querySelector('#browser');
+const fullscreen = document.querySelector('#fullscreen');
 let current = '';
 let loadTimer;
+
+function syncFullscreen() {
+  const active = document.fullscreenElement === browser || browser.classList.contains('is-expanded');
+  fullscreen.setAttribute('aria-pressed', String(active));
+  fullscreen.setAttribute('aria-label', active ? 'Exit fullscreen' : 'Enter fullscreen');
+  fullscreen.title = active ? 'Exit fullscreen' : 'Enter fullscreen';
+  document.body.classList.toggle('expanded', active);
+}
+async function exitFullscreen() {
+  if (document.fullscreenElement === browser) await document.exitFullscreen();
+  browser.classList.remove('is-expanded');
+  syncFullscreen();
+}
+fullscreen.addEventListener('click', async () => {
+  if (document.fullscreenElement === browser || browser.classList.contains('is-expanded')) {
+    await exitFullscreen();
+    return;
+  }
+  try {
+    if (!browser.requestFullscreen) throw new Error('Fullscreen unavailable');
+    await browser.requestFullscreen();
+  } catch { browser.classList.add('is-expanded'); }
+  syncFullscreen();
+  frame.focus();
+});
+document.addEventListener('fullscreenchange', syncFullscreen);
 
 function loading() {
   document.body.classList.add('loading');
@@ -27,6 +55,7 @@ function navigate(value) {
     document.querySelector('#empty-state').hidden = true;
     frame.hidden = false;
     reload.disabled = false;
+    fullscreen.disabled = false;
     document.body.classList.add('browsing');
     loading();
     frame.src = `/p/${url.protocol.slice(0, -1)}/${url.host}${url.pathname}${url.search}${url.hash}`;
@@ -39,6 +68,7 @@ function navigate(value) {
 form.addEventListener('submit', event => { event.preventDefault(); navigate(address.value); });
 document.querySelectorAll('[data-url]').forEach(button => button.addEventListener('click', () => navigate(button.dataset.url)));
 document.querySelector('#home').addEventListener('click', () => {
+  void exitFullscreen();
   frame.src = 'about:blank';
   frame.hidden = true;
   document.querySelector('#empty-state').hidden = false;
@@ -48,6 +78,7 @@ document.querySelector('#home').addEventListener('click', () => {
   current = '';
   error.hidden = true;
   reload.disabled = true;
+  fullscreen.disabled = true;
   document.title = 'Arigato';
   status.textContent = 'Your next destination awaits.';
   address.focus();
@@ -70,6 +101,16 @@ frame.addEventListener('load', () => {
 });
 addEventListener('message', event => {
   if (event.source !== frame.contentWindow || event.origin !== location.origin || event.data?.source !== 'arigato') return;
+  if (event.data.type === 'escape') {
+    if (browser.classList.contains('is-expanded')) void exitFullscreen();
+    return;
+  }
+  if (event.data.type === 'network-error') {
+    document.body.classList.remove('loading');
+    clearTimeout(loadTimer);
+    status.textContent = String(event.data.message || 'A website connection failed.').slice(0, 200);
+    return;
+  }
   try {
     const url = new URL(event.data.url);
     if (!['http:', 'https:'].includes(url.protocol)) return;
@@ -80,6 +121,7 @@ addEventListener('message', event => {
   } catch {}
 });
 addEventListener('keydown', event => {
+  if (event.key === 'Escape' && browser.classList.contains('is-expanded')) void exitFullscreen();
   if ((event.ctrlKey || event.metaKey) && event.key === 'l') {
     event.preventDefault(); address.focus(); address.select();
   }

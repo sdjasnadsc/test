@@ -21,7 +21,7 @@
       <h1>A different route.<br><span>Same curiosity.</span><span class="hero-arrow" aria-hidden="true"><svg class="arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19 19 5M5 5h14v14"/></svg></span></h1>
       <p class="intro">Drop in an address. Find your way there.</p>
     </section>
-    <section class="browser" aria-label="Web browser">
+    <section id="browser" class="browser" aria-label="Web browser">
       <div class="toolbar">
         <button id="home" class="icon-button" title="Home" aria-label="Home">⌂</button>
         <button id="reload" class="icon-button" title="Reload page" aria-label="Reload page" disabled>↻</button>
@@ -31,6 +31,7 @@
           <input id="address" name="address" type="text" inputmode="url" placeholder="Enter a website address" autocomplete="off" autocapitalize="none" spellcheck="false" required>
           <button type="submit" class="go-button">Go <span aria-hidden="true"><svg class="arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19 19 5M5 5h14v14"/></svg></span></button>
         </form>
+        <button id="fullscreen" class="icon-button" title="Enter fullscreen" aria-label="Enter fullscreen" aria-pressed="false" disabled><svg class="arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg></button>
       </div>
       <div id="empty-state" class="empty-state">
         <div class="orbit" aria-hidden="true"><span><svg class="arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19 19 5M5 5h14v14"/></svg></span></div>
@@ -41,7 +42,7 @@
           <button data-url="https://news.ycombinator.com">Hacker News <span><svg class="arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19 19 5M5 5h14v14"/></svg></span></button>
         </div>
       </div>
-      <iframe id="page" title="Proxied website" sandbox="allow-scripts allow-forms allow-same-origin allow-downloads allow-modals" referrerpolicy="no-referrer" hidden></iframe>
+      <iframe id="page" title="Proxied website" sandbox="allow-scripts allow-forms allow-same-origin allow-downloads allow-modals allow-pointer-lock allow-orientation-lock" allow="autoplay; fullscreen; gamepad" allowfullscreen referrerpolicy="no-referrer" hidden></iframe>
       <div class="statusbar"><span id="status" role="status" aria-live="polite">Your next destination awaits.</span><span id="connection">ARIGATO / WEB</span></div>
     </section>
     <p id="error" class="input-error" role="alert" hidden></p>
