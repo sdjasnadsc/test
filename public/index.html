@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Arigato</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23c9f36d'/%3E%3Cpath d='M18 46 46 18M18 18h28v28' fill='none' stroke='%23161914' stroke-width='5'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a href="/" class="brand" aria-label="Arigato home">arigato<span><svg class="arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19 19 5M5 5h14v14"/></svg></span></a>
+    <span class="edition">A LITTLE MORE INTERNET.</span>
+    <span class="online"><i></i> Ready to explore</span>
+  </header>
+  <main>
+    <section id="welcome" class="welcome">
+      <div class="eyebrow"><span>01 /</span> YOUR NEXT TAB STARTS HERE</div>
+      <h1>A different route.<br><span>Same curiosity.</span><span class="hero-arrow" aria-hidden="true"><svg class="arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19 19 5M5 5h14v14"/></svg></span></h1>
+      <p class="intro">Drop in an address. Find your way there.</p>
+    </section>
+    <section class="browser" aria-label="Web browser">
+      <div class="toolbar">
+        <button id="home" class="icon-button" title="Home" aria-label="Home">⌂</button>
+        <button id="reload" class="icon-button" title="Reload page" aria-label="Reload page" disabled>↻</button>
+        <form id="address-form" class="address-form">
+          <span class="address-icon" aria-hidden="true">◎</span>
+          <label class="sr-only" for="address">Website address</label>
+          <input id="address" name="address" type="text" inputmode="url" placeholder="Enter a website address" autocomplete="off" autocapitalize="none" spellcheck="false" required>
+          <button type="submit" class="go-button">Go <span aria-hidden="true"><svg class="arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19 19 5M5 5h14v14"/></svg></span></button>
+        </form>
+      </div>
+      <div id="empty-state" class="empty-state">
+        <div class="orbit" aria-hidden="true"><span><svg class="arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19 19 5M5 5h14v14"/></svg></span></div>
+        <p>Somewhere good is one address away.</p>
+        <div class="suggestions" aria-label="Try a website">
+          <button data-url="https://example.com">Example <span><svg class="arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19 19 5M5 5h14v14"/></svg></span></button>
+          <button data-url="https://en.wikipedia.org">Wikipedia <span><svg class="arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19 19 5M5 5h14v14"/></svg></span></button>
+          <button data-url="https://news.ycombinator.com">Hacker News <span><svg class="arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19 19 5M5 5h14v14"/></svg></span></button>
+        </div>
+      </div>
+      <iframe id="page" title="Proxied website" sandbox="allow-scripts allow-forms allow-same-origin allow-downloads allow-modals" referrerpolicy="no-referrer" hidden></iframe>
+      <div class="statusbar"><span id="status" role="status" aria-live="polite">Your next destination awaits.</span><span id="connection">ARIGATO / WEB</span></div>
+    </section>
+    <p id="error" class="input-error" role="alert" hidden></p>
+    <footer><span>BUILT FOR THE WANDERING MIND.</span><span>Take the scenic route. <svg class="arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19 19 5M5 5h14v14"/></svg></span></footer>
+  </main>
+</body>
+</html>

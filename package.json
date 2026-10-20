@@ -1,0 +1,21 @@
+{
+  "name": "arigato-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.5.0"
+  },
+  "scripts": {
+    "start": "node --use-env-proxy server.js",
+    "dev": "node --use-env-proxy --watch server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "cheerio": "1.2.0",
+    "ipaddr.js": "2.3.0",
+    "parse-srcset": "1.0.2",
+    "proxy-from-env": "1.1.0",
+    "tough-cookie": "6.0.1"
+  }
+}
